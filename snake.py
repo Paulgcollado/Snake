@@ -520,7 +520,7 @@ def end_game(died):
     # ANTES DE SALIR DEL JUEGO RESTAURAR TECLADO:
     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     move_cursor(lines + 6, 0)
-    print(CURSOR_SHOW, end="")
+    print(CURSOR_SHOW, S_R, end="")
     sys.exit(1)
 
 
