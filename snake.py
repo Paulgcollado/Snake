@@ -147,84 +147,88 @@ def start_keyboard():
 def start_game():
     global score, all_scores, nickname, speed, last_speed, key_pressed, in_pause
 
-    # CARGAR LAS PUNTUACIONES DEL FICHERO SI EXISTE
-    all_scores = load_scores()
+    try:
+        # CARGAR LAS PUNTUACIONES DEL FICHERO SI EXISTE
+        all_scores = load_scores()
 
-    # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO
-    while nickname == "":
-        # PINTAR EL MAPA. SE GUARDAN SUS LÍMITES EN UNA VARIABLE.
-        map_limits = draw_map()
-        nickname = get_valid_username()
+        # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO
+        while nickname == "":
+            # PINTAR EL MAPA. SE GUARDAN SUS LÍMITES EN UNA VARIABLE.
+            map_limits = draw_map()
+            nickname = get_valid_username()
 
-    # DIBUJAR LA SERPIETE Y LA FRUTA
-    snake = initial_position[:]
-    draw_snake(snake)
-    fruit = draw_fruit(snake, map_limits)
+        # DIBUJAR LA SERPIETE Y LA FRUTA
+        snake = initial_position[:]
+        draw_snake(snake)
+        fruit = draw_fruit(snake, map_limits)
 
-    # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
-    start_keyboard()
-    last_key_pressed = 'R'
-    print(CURSOR_HIDE, end="")
+        # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
+        start_keyboard()
+        last_key_pressed = 'R'
+        print(CURSOR_HIDE, end="")
 
-    while True:
-        with lock:
-            action = key_pressed
+        while True:
+            with lock:
+                action = key_pressed
 
-        # SI EL JUEGO ESTÁ PAUSADO, SALTAR ITERACIONES HASTA QUE NO CAPTURA UNA P
-        if in_pause:
-            if action != 'P':
-                in_pause = False
-                speed = last_speed
+            # SI EL JUEGO ESTÁ PAUSADO, SALTAR ITERACIONES HASTA QUE NO CAPTURA UNA P
+            if in_pause:
+                if action != 'P':
+                    in_pause = False
+                    speed = last_speed
+                    show_game_info(nickname)
+                continue
+            
+            if action == 'Q':
+                # CONTROLA LA PULSACIÓN DE LA LETRA Q PARA SALIR
+                end_game(False)
+            elif action == 'P':
+                # GUARDAR ÚLTIMA VELOCIDAD Y ESTABLECERLA EN 0
+                last_speed = speed
+                speed = 0
+
+                # MOSTRAR ESTADO EN PAUSE
+                in_pause = True
                 show_game_info(nickname)
-            continue
-        
-        if action == 'Q':
-            # CONTROLA LA PULSACIÓN DE LA LETRA Q PARA SALIR
-            end_game(False)
-        elif action == 'P':
-            # GUARDAR ÚLTIMA VELOCIDAD Y ESTABLECERLA EN 0
+                continue
+            elif action in ['+', '-']:
+                # CAMBIO DE VELOCIDAD
+                speed = change_speed(action)
+                show_game_info(nickname)
+
+                # VOLVER A LA ÚLTIMA DIRECCIÓN VÁLIDA
+                key_pressed = last_key_pressed
+                continue
+            
+            # MOVER LA SERPIENTE A UNA DIRECCIÓN VÁLIDA Y GUARDAR LA POSICIÓN ANTERIOR DE LA COLA.
+            action = get_valid_move(action, last_key_pressed)
+            tail = move_snake(snake, action, last_key_pressed)
+
+            # COMPROBAR SI SE HA CHOCADO CON UNA FRUTA
+            if check_eat(snake, tail, fruit):
+                # CAMBIAR EL COLOR DE LA CABEZA
+                change_head_color(snake, action, color=C_LG, reset_color=True)
+
+                # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
+                fruit = draw_fruit(snake, map_limits)
+                score = len(snake) - len(initial_position)
+                show_game_info(nickname)
+
+            # COMPROBAR SI SE HA CHOCADO
+            if check_collision(snake, map_limits):
+                change_head_color(snake, action, color=C_R, reset_color=False)
+                end_game(True)
+
+            # GUARDAR LA ÚLTIMA TECLA Y VELOCIDAD VÁLIDA
+            last_key_pressed = action
             last_speed = speed
-            speed = 0
 
-            # MOSTRAR ESTADO EN PAUSE
-            in_pause = True
-            show_game_info(nickname)
-            continue
-        elif action in ['+', '-']:
-            # CAMBIO DE VELOCIDAD
-            speed = change_speed(action)
-            show_game_info(nickname)
-
-            # VOLVER A LA ÚLTIMA DIRECCIÓN VÁLIDA
-            key_pressed = last_key_pressed
-            continue
-        
-        # MOVER LA SERPIENTE A UNA DIRECCIÓN VÁLIDA Y GUARDAR LA POSICIÓN ANTERIOR DE LA COLA.
-        action = get_valid_move(action, last_key_pressed)
-        tail = move_snake(snake, action, last_key_pressed)
-
-        # COMPROBAR SI SE HA CHOCADO CON UNA FRUTA
-        if check_eat(snake, tail, fruit):
-            # CAMBIAR EL COLOR DE LA CABEZA
-            change_head_color(snake, action, color=C_LG, reset_color=True)
-
-            # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
-            fruit = draw_fruit(snake, map_limits)
-            score = len(snake) - len(initial_position)
-            show_game_info(nickname)
-
-        # COMPROBAR SI SE HA CHOCADO
-        if check_collision(snake, map_limits):
-            change_head_color(snake, action, color=C_R, reset_color=False)
-            end_game(True)
-
-        # GUARDAR LA ÚLTIMA TECLA Y VELOCIDAD VÁLIDA
-        last_key_pressed = action
-        last_speed = speed
-
-        # TIEMPO DE ESPERA ENTRE CADA FOTOGRAMA
-        frame_rate = obtain_frame_rate(action)
-        time.sleep(frame_rate)
+            # TIEMPO DE ESPERA ENTRE CADA FOTOGRAMA
+            frame_rate = obtain_frame_rate(action)
+            time.sleep(frame_rate)
+    except KeyboardInterrupt:
+        end_game(False)
+        reset_terminal()
 
 
 def get_valid_username():
@@ -234,7 +238,7 @@ def get_valid_username():
     """
     # PEDIR NOMBRE DE USUARIO
     move_cursor(lines + 6, 0)
-    new_username = input(f" {CURSOR_SHOW}{S_R}🤖 PLAYER NAME: {C_GRAY}")
+    new_username = input(f" {CURSOR_SHOW}{S_R}{S_B}🤖 PLAYER NAME: {S_R}{C_GRAY}")
 
     # COMPROBAR SI SU LONGITUD ES MAYOR DE LA MÁXIMA PERMITIDA
     if len(new_username) >= USERNAME_MAX_LENGTH:
@@ -282,7 +286,7 @@ def draw_map():
     print(CLEAR_SCREEN, end="")
     print(f"""  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
   ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
-  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {C_GRAY}DAW 2025""")
+  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {C_GRAY}DAW 2026""")
 
     # DIBUJAR EL MAPA CON SUS FILAS Y SOLUMNAS.
     print(f"▄"*(columns+2))
@@ -507,21 +511,16 @@ def obtain_frame_rate(action):
 # --------------------------------------------------------------------------
 def end_game(died):
     if died:
-        # SI EL JUGADOR MUERE, CARGA EN UN FICHERO EL HISTÓRICO DE LOS SCORES GUARDADOS POR CADA JUGADOR
+        # SI EL JUGADOR MUERE, CARGA EN UN FICHERO EL HISTÓRICO DE LOS SCORES GUARDADOS POR CADA JUGADOR. DESPUÉS MOSTRAR PUNTUACIONES.
         registro = save_scores(all_scores)
         time.sleep(1)
-
-        # MOSTRAR LAS PUNTUACIONES
-        show_scores(registro, C_M)
+        show_scores(registro, color_registro=C_M)
     else:
         # MOSTRAR UN AGRADECIMIENTO SI SE HA SALIDO DEL JUEGO POR EL BOTÓN Q
         show_thanks_text()
 
     # ANTES DE SALIR DEL JUEGO RESTAURAR TECLADO:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    move_cursor(lines + 6, 0)
-    print(CURSOR_SHOW, S_R, end="")
-    sys.exit(1)
+    reset_terminal()
 
 
 def show_thanks_text():
@@ -532,6 +531,13 @@ def show_thanks_text():
     # IMPRIMIR TEXTO
     move_cursor((lines // 2) + 5, 2)
     print(f"{f'THANKS FOR PLAYING!':^{columns}}")
+
+
+def reset_terminal():
+    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    move_cursor(lines + 6, 0)
+    print(CURSOR_SHOW, S_R, end="")
+    sys.exit(1)
 
 
 # --------------------------------------------------------------------------
@@ -565,15 +571,15 @@ def show_scores(registro_actual, color_registro):
     draw_map()
 
     # IMPRIMIR GAME OVER
-    move_cursor(7, 2)
-    print(f"{C_R}{f'💀 GAME OVER 💀':^{columns - 2}}{S_R}")
+    move_and_draw_char([6, 2], f"{C_R}{S_B}{f'💀 GAME OVER 💀':^{columns - 2}}{S_R}")
+    move_and_draw_char([7, 2], f"{'―――――――――――――――――――――――――――――――':^{columns - 1}}")
 
     # ORDENAR DE MAYOR PUNTUACIÓN A MENOR PUNTUACIÓN LOS 10 MEJORES
     current_line = 7
     ranking = sorted(all_scores, key=lambda score: score[2], reverse=True)
     for element in ranking[:SCORE_MAX_LENGTH]:
         # RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL, SI COINCIDE LA FECHA DEL REGISTRO CON LA FECHA DEL ACTUAL
-        color = color_registro if element[0] == registro_actual[0] else S_R
+        color = f"{S_B}{color_registro}" if element[0] == registro_actual[0] else S_R
         
         # IMPRIMIR REGISTRO
         current_line += 1
