@@ -65,7 +65,7 @@ nickname = ""
 USERNAME_MAX_LENGTH = 15
 
 score = 0
-score_max_length = 9
+SCORE_MAX_LENGTH = 10
 all_scores = []
 
 # --------------------------------------------------------------------------
@@ -519,8 +519,8 @@ def end_game(died):
 
     # ANTES DE SALIR DEL JUEGO RESTAURAR TECLADO:
     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    print(CURSOR_SHOW, end="")
     move_cursor(lines + 6, 0)
+    print(CURSOR_SHOW, end="")
     sys.exit(1)
 
 
@@ -566,17 +566,19 @@ def show_scores(registro_actual, color_registro):
 
     # IMPRIMIR GAME OVER
     move_cursor(7, 2)
-    print(f"{C_R}{f'💀 GAME OVER 💀':^{columns}}{S_R}")
+    print(f"{C_R}{f'💀 GAME OVER 💀':^{columns - 2}}{S_R}")
 
-    # ORDENAR DE MAYOR PUNTUACIÓN A MENOR PUNTUACIÓN
+    # ORDENAR DE MAYOR PUNTUACIÓN A MENOR PUNTUACIÓN LOS 10 MEJORES
+    current_line = 7
     ranking = sorted(all_scores, key=lambda score: score[2], reverse=True)
-    for element in ranking:
+    for element in ranking[:SCORE_MAX_LENGTH]:
         # RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL, SI COINCIDE LA FECHA DEL REGISTRO CON LA FECHA DEL ACTUAL
         color = color_registro if element[0] == registro_actual[0] else S_R
         
         # IMPRIMIR REGISTRO
+        current_line += 1
         item = f"{f'🤖 {element[1]}':<15}{element[2]:>15}"
-        print(f"{color}{item:^{columns}}")
+        move_and_draw_char([current_line, 2], f"{color}{item:^{columns - 2}}")
 
 
 # ==========================================================================
