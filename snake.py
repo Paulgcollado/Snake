@@ -197,7 +197,9 @@ def start_game():
         # DIBUJAR LA SERPIETE Y LA FRUTA
         snake = initial_position[:]
         draw_snake(snake)
-        fruit = draw_fruit(snake, map_limits)
+        color_fruit = get_random_color()
+        last_color = C_G
+        fruit = draw_fruit(snake, color_fruit, map_limits)
 
         # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
         start_keyboard()
@@ -239,15 +241,17 @@ def start_game():
             
             # MOVER LA SERPIENTE A UNA DIRECCIÓN VÁLIDA Y GUARDAR LA POSICIÓN ANTERIOR DE LA COLA.
             action = get_valid_move(action, last_key_pressed)
-            tail = move_snake(snake, action, last_key_pressed)
+            tail = move_snake(snake, last_color, action, last_key_pressed)
 
             # COMPROBAR SI SE HA CHOCADO CON UNA FRUTA
             if check_eat(snake, tail, fruit):
                 # CAMBIAR EL COLOR DE LA CABEZA
-                change_head_color(snake, action, color=C_LG, reset_color=True)
+                # change_head_color(snake, action, color=C_LG, reset_color=True)
+                last_color = color_fruit
 
                 # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
-                fruit = draw_fruit(snake, map_limits)
+                color_fruit = get_random_color()
+                fruit = draw_fruit(snake, color_fruit, map_limits)
                 score = len(snake) - len(initial_position)
                 show_game_info(nickname)
 
@@ -315,7 +319,7 @@ def draw_snake(snake):
 
 
 # MOVER LA SERPIENTE:
-def move_snake(snake, direction, last_direction):
+def move_snake(snake, head_color, direction, last_direction):
     """Dado a una lista de tuplas y una dirección, se añade una nueva coordenada al principio de la lista
     y se elimina el último, dando la sensación de movimiento.
     
@@ -350,7 +354,8 @@ def move_snake(snake, direction, last_direction):
 
     # PINTAR LA NUEVA CABEZA DEPENDIENDO DEL MOVIMIENTO.
     character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
-    move_and_draw_char(head, f"{C_G}{character}")
+    move_and_draw_char(head, f"{head_color}{character}")
+    move_and_draw_char(snake[1], f"{C_G}{character}")
 
     # COMPROBAR SI HA GIRADO Y MOSTRAR UN CARÁCTER DISTINTO EN LOS GIROS DEL CUERPO.
     if is_turning(direction, last_direction):
@@ -403,7 +408,7 @@ def check_collision(snake, map_limits):
 
 
 # --------------------------------------------------------------------------
-def draw_fruit(snake, map_limits):
+def draw_fruit(snake, color, map_limits):
     """
     Pinta una fruta en la pantalla en una coordenada aleatoria dentro de los límites del mapa y fuera del cuerpo de la serpiente
     """
@@ -416,10 +421,6 @@ def draw_fruit(snake, map_limits):
                 if coordenada not in snake:
                     map_range.append(coordenada)
         return map_range
-    
-    def get_random_color():
-        colors = [C_G, C_LG, C_R, C_Y, C_LR, C_B, C_M, C_C, C_GRAY]
-        return random.choice(colors)
 
     # GUARDAR EL RANGO HORIZONTAL Y VERTICAL DEL MAPA:
     lines = list(range(map_limits['U'] + 1, map_limits['D']))
@@ -430,11 +431,15 @@ def draw_fruit(snake, map_limits):
 
     # MOVER EL CURSOR A UNA POSICIÓN ALEATORIA DENTRO DE MAP_RANGE Y PINTAR LA FRUTA.
     fruit_position = (random.choice(map_range))
-    color = get_random_color()
     move_and_draw_char(fruit_position, f"{color}⬤{S_R}")
 
     # DEVOLVER LA POSICIÓN DE LA FRUTA CREADA:
     return fruit_position
+
+
+def get_random_color():
+    colors = [C_G, C_LG, C_R, C_Y, C_LR, C_B, C_M, C_C, C_GRAY]
+    return random.choice(colors)
 
 
 # --------------------------------------------------------------------------
