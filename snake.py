@@ -18,186 +18,275 @@
 # IMPORTACIÓN DE LAS LIBRERIAS
 # 
 # Estas son las librerías necesarias para que el programa funcione.
-import sys, tty, termios
-import threading
-import time
-import random
-import pickle
-import os
+import sys, tty, termios, threading, time, random, pickle, os
+from dataclasses import dataclass
+from typing import List, Tuple, Dict, Optional
+from enum import Enum
 
 
 # ==========================================================================
-# VARIABLES GLOBALES
+# CONSTANTES
 #
-# Estas son las variables que serán accesibles desde cualquier parte del programa
-# --------------------------------------------------------------------------
-# CURSOR DEL TERMINAL
-CURSOR_HIDE="\033[?25l"                         # HIDE CURSOR
-CURSOR_SHOW="\033[?25h"                         # SHOW CURSOR
-CLEAR_SCREEN="\033c"                            # CLEAR SCREEN
-S_R="\033[0m"                                   # STYLE RESET
-S_D="\033[2m"                                   # STYLE DIM
-S_B="\033[1m"                                   # STYLE BOLD
-R_L="\033[2K"                                   # REMOVE LINE
-M_U="\033[A"                                    # MOVE UP 1 LINE
+# Datos y métodos constantes que se usan en todo el programa.
+class Style:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
 
-# --------------------------------------------------------------------------
-# COLORES
-C_G="\033[32m"                                  # COLOR GREEN
-C_LG="\033[92m"                                 # COLOR LIGHT GREEN
-C_R="\033[31m"                                  # COLOR RED
-C_Y="\033[33m"                                  # COLOR YELLOW
-C_LR="\033[91m"                                 # COLOR LIGHT RED
-C_B="\033[34m"                                  # COLOR BLUE
-C_M="\033[35m"                                  # COLOR MAGENTA
-C_C="\033[36m"                                  # COLOR CYAN
-C_GRAY="\033[37m"                               # COLOR GRAY
- 
-# --------------------------------------------------------------------------
-# CONFIGURACIÓN DEL JUEGO
-lines = 15                                      # MAP SIZE LINES
-columns = 50                                    # MAP SIZE COLUMNS
-in_pause = False
+    @staticmethod
+    def move_cursor(line: int, column: int) -> str:
+        """Mueve el cursor a la posición especificada"""
+        return f"\033[{line};{column}H"
 
-# --------------------------------------------------------------------------
-# USUARIO Y PUNTUACIÓN
-score = 0
-SCORE_MAX_LENGTH = 10
+    @staticmethod
+    def move_and_print(position: Tuple[int, int], text: str) -> None:
+        """Mueve el cursor e imprime texto"""
+        print(Style.move_cursor(*position), end="")
+        print(text, end="", flush=True)
 
-# --------------------------------------------------------------------------
-# TIEMPO Y VELOCIDAD
-speed = 5
-last_speed = 5
-MIN_SPEED = 1
-MAX_SPEED = 15
-FRAME_RATE = 0.05
-EAT_WAIT_TIME = 0.15
 
-# --------------------------------------------------------------------------
-# SNAKE
-initial_position = [(10, 10), (10, 9), (10, 8), (10, 7)]
-SNAKE_VERTICAL = f"█{S_R}"
-SNAKE_HORIZONTAL = f"■{S_R}"
-SNAKE_TURN = f"▮{S_R}"
+class Color:
+    """Códigos para escribir en un color en la terminal"""
+    GREEN = "\033[32m"
+    LIGHT_GREEN = "\033[92m"
+    RED = "\033[31m"
+    YELLOW = "\033[33m"
+    LIGHT_RED="\033[91m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    GRAY = "\033[37m"
 
-# --------------------------------------------------------------------------
-# VARIABLES DE TECLADO
-key_pressed = "R"                               # USER LAST KEY PRESSED
+    @staticmethod
+    def random() -> str:
+        """Devuelve un color aleatorio de la paleta de colores"""
+        colors = [Color.GREEN, Color.LIGHT_GREEN, Color.RED, Color.YELLOW, Color.LIGHT_RED, Color.BLUE, Color.MAGENTA, Color.CYAN, Color.GRAY]
+        return random.choice(colors)
 
+
+class Terminal:
+    """Constantes para el control de la terminal"""
+    CURSOR_HIDE = "\033[?25l"
+    CURSOR_SHOW = "\033[?25h"
+    CLEAR_SCREEN = "\033c"
+    REMOVE_LINE = "\033[2K"
+    MOVE_UP = "\033[A"
+
+
+class GameConfig:
+    """Configuración del juego"""
+    MAP_LINES = 15
+    MAP_COLUMNS = 50
+    INITIAL_POSITION = [(10, 10), (10, 9), (10, 8), (10, 7)]
+    MIN_SPEED = 1
+    MAX_SPEED = 15
+    BASE_FRAME_RATE = 0.05
+    EAT_WAIT_TIME = 0.15
+    USERNAME_MAX_LENGTH = 15
+    SCORE_MAX_LENGTH = 10
+    SNAKE_VERTICAL = "█"
+    SNAKE_HORIZONTAL = "■"
+    SNAKE_TURN = "▮"
+
+
+class Direction(Enum):
+    """Direcciones posibles"""
+    UP = "U"
+    DOWN = "D"
+    LEFT = "L"
+    RIGHT = "R"
+
+    @property
+    def opposite(self):
+        """Devuelve la dirección opuesta"""
+        opposites = {
+            Direction.UP: Direction.DOWN,
+            Direction.DOWN: Direction.UP,
+            Direction.LEFT: Direction.RIGHT,
+            Direction.RIGHT: Direction.LEFT
+        }
+        return opposites[self]
+    
+    @property
+    def movement(self) -> Tuple[int, int]:
+        """Devuelve el vector de movimiento"""
+        movements = { Direction.UP: (-1, 0), Direction.DOWN: (1, 0), Direction.LEFT: (0, -1), Direction.RIGHT: (0, 1) }
+        return movements[self]
+    
+    @property
+    def is_vertical(self) -> bool:
+        """Verifica si la dirección es vertical"""
+        return self in (Direction.UP, Direction.DOWN)
+    
+    @property
+    def is_horizontal(self) -> bool:
+        """Verifica si la dirección es horizontal"""
+        return self in (Direction.LEFT, Direction.RIGHT)
+        
 
 # ==========================================================================
 # CLASES
 #
-# Clases que usa el programa
-# --------------------------------------------------------------------------
-class Map:
-    def __init__(self, lines, columns):
+# Clases propias para el manejo del juego.
+@dataclass
+class MapLimits:
+    """Límites del mapa del juego"""
+    top: int
+    bottom: int
+    left: int
+    right: int
+
+    def contains(self, position: Tuple[int, int]) -> bool:
+        """Verifica si una posición está dentro de los límites del mapa"""
+        line, column = position
+        in_vertical_range = self.top < line < self.bottom
+        in_horizontal_range = self.left < column < self.right
+        return in_vertical_range and in_horizontal_range
+
+
+class GameMap:
+    """Representa el mapa del juego"""
+
+    def __init__(self, lines: int, columns: int):
         self.lines = lines
         self.columns = columns
-
-    def draw_map(self):
-        # PINTAR EL BANNER.
-        print(CLEAR_SCREEN, end="")
-        print(f"""  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
+        self.banner = """  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
   ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
-  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {C_GRAY}DAW 2026""")
+  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝"""
 
-        # DIBUJAR EL MAPA CON SUS FILAS Y SOLUMNAS.
-        print(f"▄"*(columns+2))
-        print(f"█{' '*(columns)}█\n"*lines, end="")
-        print(f"▀"*(columns+2))
+    def draw(self) -> MapLimits:
+        """Dibuja el mapa y devuelve sus límites"""
+        print(Terminal.CLEAR_SCREEN, end="")
+        print(f"{self.banner}     {Color.GRAY}DAW 2026{Style.RESET}")
+
+        # DIBUJAR BORDES DEL MAPA
+        print(f"▄"*(self.columns+2))
+        print(f"█{' '*(self.columns)}█\n"*self.lines, end="")
+        print(f"▀"*(self.columns+2))
 
         # DEVOLVER LOS LÍMITES DEL MAPA.
-        return { "U": 4, "D": self.lines + 5, "L": 1, "R": self.columns + 2 }
+        return MapLimits(top = 4, bottom = self.lines + 5, left = 1, right = self.columns + 2)
+    
+    def show_game_info(self, username: str, score: int, speed: int) -> None:
+        """Muestra la información del juego debajo del mapa"""
+        width = self.columns // 3
+        speed_text = speed if speed > 0 else f"{Color.RED}PAUSE{Style.RESET}"
+
+        # IMPRIMIR CADA UNO, Y ALINEARLO A LA ANCHURA A LA IZQUIERDA, CENTRO Y DERECHA
+        Style.move_and_print((self.lines + 6, 0), " " * self.columns)
+        Style.move_and_print((self.lines + 6, 0),
+            f" {f'🐍 SCORE: {score}':<{width}}"
+            f"{f'🚀 SPEED: {speed_text}':^{width}}"
+            f"{f'🤖 {username}':>{width}}"
+        )
     
 
 class Snake:
-    def __init__(self):
+    """Representa la serpiente del juego"""
+
+    def __init__(self, initial_position: List[Tuple[int, int]]):
         self.position = initial_position[:]
-
-    def draw_snake(self):
-        for fila, columna in self.position:
-            move_and_draw_char([fila, columna], f"{C_G}{SNAKE_HORIZONTAL}")
+        self.direction = Direction.RIGHT
+        self.speed = 5
+        self.growth_pending = 0
     
-    def move_snake(self, direction, last_direction, head_color):
-        head = self.position[0]
-        tail = self.position.pop()
+    @property
+    def head(self) -> Tuple[int, int]:
+        """Devuelve la posición de la cabeza"""
+        return self.position[0]
+    
+    @property
+    def tail(self) -> Tuple[int, int]:
+        """Devuelve la posición de la cola"""
+        return self.position[-1]
 
-        # SUMARLE O RESTARLE 1 DEPENDIENDO DE LA DIRECCIÓN
-        movement = { "U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1) }
-        head = head[0] + movement[direction][0], head[1] + movement[direction][1]
+    def draw(self) -> None:
+        """Dibuja la serpiente completa"""
+        for position in self.position:
+            Style.move_and_print(position, f"{Color.GREEN}{GameConfig.SNAKE_HORIZONTAL}{Style.RESET}")
+    
+    def move(self, new_direction: Direction, last_direction: Direction) -> Tuple[int, int]:
+        """Mueve la serpiente en una dirección y devuelve la posición de la cola eliminada"""
+        # VALIDAR DIRECCIÓN.
+        if new_direction.opposite == self.direction:
+            new_direction = self.direction
+        self.direction = new_direction
+
+        # CALCULAR LA NUEVA POSICIÓN DE LA CABEZA.
+        line, column = self.head
+        horizontal_direction, vertical_direction = new_direction.movement
+        new_head = (line + horizontal_direction, column + vertical_direction)
 
         # AÑADIR LA NUEVA CABEZA
-        self.position.insert(0, head)
-        character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
-        move_and_draw_char(head, f"{head_color}{character}")
-        move_and_draw_char(self.position[1], f"{C_G}{character}")
+        self.position.insert(0, new_head)
+        head_character = GameConfig.SNAKE_HORIZONTAL if new_direction.is_horizontal else GameConfig.SNAKE_VERTICAL
+        Style.move_and_print(new_head, f"{Color.GREEN}{head_character}{Style.RESET}")
 
         # COMPROBAR SI HA GIRADO Y MOSTRAR UN CARÁCTER DISTINTO EN LOS GIROS DEL CUERPO.
-        if self.__is_turning(direction, last_direction):
-            move_and_draw_char(self.position[1], f"{C_G}{SNAKE_TURN}")
+        if self._is_turning(self.direction, last_direction):
+            Style.move_and_print(self.position[1], f"{Color.GREEN}{GameConfig.SNAKE_TURN}{Style.RESET}")
 
-        # BORRAR LA COLA PINTANDO UN ESPACIO EN BLANCO
-        move_and_draw_char(tail, " ")
+        if self.growth_pending > 0:
+            self.growth_pending -= 1
+            return None
+        tail = self.position.pop()
+        Style.move_and_print(tail, " ")
         return tail
     
-    def get_valid_move(self, direction, last_direction):
-        opposites = { 'U': 'D', 'D': 'U', 'L': 'R', 'R': 'L' }
-        for case in opposites.keys():
-            if direction == case and last_direction == opposites[case]:
-                return last_direction
-        return direction
+    def grow(self) -> None:
+        """Marca la serpiente para crecer en el próximo movimiento"""
+        self.growth_pending += 1
     
-    def change_head_color(self, direction, color, reset_color):
-        head = self.position[0]
-        character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
-        move_and_draw_char(head, f"{color}{character}{S_R}")
-        if reset_color:
-            time.sleep(EAT_WAIT_TIME)
-            move_and_draw_char(head, f"{C_G}{character}{S_R}")
-    
-    def __is_turning(self, direction, last_direction):
-        vertical = ['U', 'D']
-        horizontal = ['L', 'R']
-
-        if direction in vertical and last_direction in horizontal:
-            return True
-        elif direction in horizontal and last_direction in vertical:
-            return True
-
-        return False
-    
-    def check_collision(self, map_limits):
-        head = self.position[0]
-        if head in self.position[1:] or not self.__in_limits(head, map_limits):
+    def check_collision(self, map_limits: MapLimits) -> bool:
+        """Verifica colisiones con bordes o con sí misma"""
+        # Colisión con bordes
+        if not map_limits.contains(self.head):
             return True
         
+        # Colisión consigo misma
+        return self.head in self.position[1:-1]
+    
+    def change_head_color(self, color: str, reset: bool = True) -> None:
+        """Cambia temporalmente el color de la cabeza"""
+        head_character = GameConfig.SNAKE_HORIZONTAL if self.direction.is_horizontal else GameConfig.SNAKE_VERTICAL
+        Style.move_and_print(self.head, f"{color}{head_character}{Style.RESET}")
+        if reset:
+            time.sleep(GameConfig.EAT_WAIT_TIME)
+            Style.move_and_print(self.head, f"{Color.GREEN}{head_character}{Style.RESET}")
+
+    def adjust_speed(self, change: int) -> None:
+        """Ajusta la velocidad de la serpiente"""
+        new_speed = self.speed + change
+        if GameConfig.MIN_SPEED <= new_speed <= GameConfig.MAX_SPEED:
+            self.speed = new_speed
+    
+    def set_speed(self, speed: int) -> None:
+        """Establece la velocidad de la serpiente"""
+        if speed == 0:
+            self.speed = speed
+            return
+        self.speed = max(GameConfig.MIN_SPEED, min(speed, GameConfig.MAX_SPEED))
+
+    def _is_turning(self, direction: Direction, last_direction = Direction) -> bool:
+        """Comprueba si se ha realizado un giro en la dirección de la serpiente"""
+        if direction.is_vertical and last_direction.is_horizontal:
+            return True
+        elif direction.is_horizontal and last_direction.is_vertical:
+            return True
         return False
-    
-    def __in_limits(self, head, map_limits):
-        if not map_limits['D'] > head[0] > map_limits['U']:
-            return False
-        elif not map_limits['L'] < head[1] < map_limits['R']:
-            return False
-        
-        return True
-    
-    def add_tail(self, tail):
-        self.position.append(tail)
-        move_and_draw_char(tail, f"{C_G}■{S_R}")
-    
-    def __len__(self):
-        return len(self.position)
 
 
 class Fruit:
-    def __init__(self, snake, map_limits):
-        self.position = self.__get_position(snake, map_limits)
-        self.color = self.__get_random_color()
-        self.draw_fruit()
+    """Representa la fruta que come la serpiente"""
 
-    def draw_fruit(self):
-        move_and_draw_char(self.position, f"{self.color}⬤{S_R}")
+    def __init__(self, snake: Snake, map_limits: MapLimits):
+        self.position = self._generate_position(snake, map_limits)
+        self.color = Color.random()
+        self.draw()
+
+    def draw(self) -> None:
+        """Dibuja la fruta en la pantalla"""
+        Style.move_and_print(self.position, f"{self.color}⬤{Style.RESET}")
 
     def __get_valid_range(self, snake, lines, columns):
         map_range = []
@@ -208,48 +297,123 @@ class Fruit:
                     map_range.append(coordenada)
         return map_range
 
-    def __get_position(self, snake, map_limits):
-        lines = list(range(map_limits['U'] + 1, map_limits['D']))
-        columns = list(range(map_limits['L'] + 1, map_limits['R']))
+    def _generate_position(self, snake: Snake, map_limits: MapLimits) -> Tuple[int, int]:
+        """Genera una posición aleatoria para la fruta"""
+        map_range = []
+        for line in range(map_limits.top + 1, map_limits.bottom):
+            for column in range(map_limits.left + 1, map_limits.right):
+                position = tuple([line, column])
+                if position not in snake.position:
+                    map_range.append(position)
 
-        # GENERAR EL RANGO DE POSICIONES
-        map_range = self.__get_valid_range(snake, lines, columns)
-        self.position = (random.choice(map_range))
-        return self.position
+        # SI NO HAY POSICIONES DISPONIBLES
+        if not map_range:
+            return (map_limits.top + 1, map_limits.left + 1)
+        return random.choice(map_range)
     
-    def __get_random_color(self):
-        colors = [C_G, C_LG, C_R, C_Y, C_LR, C_B, C_M, C_C, C_GRAY]
-        return random.choice(colors)
-    
-    def check_eat(self, snake, tail):
-        head = snake.position[0]
-        if head == self.position:
-            snake.add_tail(tail)
-            return True
-        return False
+    def is_eaten(self, snake: Snake) -> bool:
+        """Verifica si la serpiente ha comido una fruta"""
+        return snake.head == self.position
 
 
-class User:
-    USERNAME_MAX_LENGTH = 15
-    total_users = []
+class ScoreManager:
+    """Maneja el sistema de puntuaciones"""
 
     def __init__(self):
-        self.name = ""
-        self.score = 0
+        self.scores: List[Tuple[float, str, int]] = []
+        self.load_scores()
+        pass
+
+    def add_score(self, username: str, score: int) -> Tuple[float, str, int]:
+        """Añade una nueva puntuación"""
+        record = tuple((time.time(), username, score))
+        self.scores.append(record)
+        self.save_scores()
+        return record
     
-    def get_valid_name(self):
-        # PEDIR NOMBRE DE USUARIO
-        move_cursor(lines + 6, 0)
-        new_username = input(f" {CURSOR_SHOW}{S_R}{S_B}🤖 PLAYER NAME: {S_R}{C_GRAY}")
+    def save_scores(self) -> None:
+        """Guarda en el fichero scores.pkl la lista de scores"""
+        try:
+            with open('scores.pkl', 'wb') as file:
+                pickle.dump(self.scores, file)
+        except Exception as e:
+            print(f"Error guardando puntuaciones: {e}")
+    
+    def load_scores(self) -> None:
+        """Carga las puntuaciones desde un fichero"""
+        try:
+            with open('scores.pkl', 'rb') as file:
+                self.scores = pickle.load(file)
+        except FileNotFoundError:
+            self.scores = []
+        except Exception as e:
+            print(f"Error cargando puntuaciones: {e}")
+            self.scores = []
+    
+    def get_ranking(self, limit: int = 10) -> List[Tuple[float, str, int]]:
+        """Obtiene el ranking de mejores puntuaciones"""
+        return sorted(self.scores, key=lambda score: score[2], reverse=True)[:limit]
 
-        # COMPROBAR SI SU LONGITUD ES MAYOR DE LA MÁXIMA PERMITIDA
-        if len(new_username) >= User.USERNAME_MAX_LENGTH:
-            print(f"{CURSOR_HIDE}{C_R}Username must be less than 15 characters{S_R}")
-            time.sleep(1)
-            self.name = ""
 
-        show_game_info(new_username)
-        self.name = new_username
+class InputHandler:
+    """Maneja la entrada de teclado en segundo plano"""
+
+    def __init__(self):
+        self.fd = sys.stdin.fileno()
+        self.old_settings = termios.tcgetattr(self.fd)
+        self.lock = threading.Lock()
+        self.current_key = "R"
+        self.thread = None
+    
+    def start(self) -> None:
+        """Inicia el hilo de lectura de teclado"""
+        self.thread = threading.Thread(target=self._read_keyboard, daemon=True)
+        self.thread.start()
+
+    def _read_keyboard(self) -> None:
+        """Lee las teclas presionadas en segundo plano"""
+        try:
+            tty.setcbreak(self.fd)
+            while True:
+                ch1 = sys.stdin.read(1)
+                if ch1 == '\x1b':
+                    ch2 = sys.stdin.read(1)
+                    ch3 = sys.stdin.read(1)
+                    key_seq = ch1 + ch2 + ch3
+                    
+                    key_map = {
+                        '\x1b[A': "U",  # Flecha arriba
+                        '\x1b[B': "D",  # Flecha abajo
+                        '\x1b[C': "R",  # Flecha derecha
+                        '\x1b[D': "L",  # Flecha izquierda
+                    }
+                    
+                    with self.lock:
+                        self.current_key = key_map.get(key_seq, self.current_key)
+                
+                elif ch1 in ['q', 'p', '+', '-']:
+                    with self.lock:
+                        self.current_key = ch1.upper() if ch1 != 'q' else 'Q'
+                
+                # Pequeña pausa para evitar uso excesivo de CPU
+                time.sleep(0.01)
+        except Exception:
+            pass
+        finally:
+            self._restore_terminal()
+    
+    def get_key(self) -> str:
+        """Obtiene la tecla actualmente presionada"""
+        with self.lock:
+            return self.current_key
+    
+    def stop(self) -> None:
+        """Detiene el hilo de lectura y restaura el terminal"""
+        self._restore_terminal()
+    
+    def _restore_terminal(self) -> None:
+        """Restaura la configuración original del terminal"""
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
 
 
 # ==========================================================================
@@ -257,259 +421,141 @@ class User:
 #
 # Estas son todas las funciones que usa el programa
 # --------------------------------------------------------------------------
-# CAPTURA DEL TECLADO
-def start_keyboard():
-    def read_keyboard():
-        global key_pressed
-        try:
-            key_read=""
-            tty.setcbreak(fd)
-            while key_read != "q":
-                ch1 = sys.stdin.read(1)
-                if ch1 == '\x1b':  # posible flecha
-                    ch2 = sys.stdin.read(1)
-                    ch3 = sys.stdin.read(1)
-                    k = ch1 + ch2 + ch3
-                    if k == '\x1b[A':
-                        key_read = "U"
-                    elif k == '\x1b[B':
-                        key_read = "D"
-                    elif k == '\x1b[C':
-                        key_read = "R"
-                    elif k == '\x1b[D':
-                        key_read = "L"
-                elif ch1 == 'q':
-                    key_read = "Q"
-                # AÑADIR LA TECLA P PARA EL PAUSE.    
-                elif ch1 == 'p':
-                    key_read = "P"
-                # AÑADIR LAS TECLAS + Y -
-                elif ch1 == '+':
-                    key_read = "+"
-                elif ch1 == '-':
-                    key_read = "-"
-                with lock:
-                    key_pressed = key_read                    
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
- 
-    key_thread = threading.Thread(target=read_keyboard, daemon=True)
-    key_thread.start()
-    return key_thread
+def get_username(game_map: GameMap) -> str:
+    """Solicita y valida el nombre de usuario"""
+    while True:
+        Style.move_and_print((game_map.lines + 6, 0), f" {Terminal.CURSOR_SHOW}{Style.BOLD}🤖 PLAYER NAME: {Style.RESET}{Color.GRAY}")
+        username = input()
+        if len(username) < GameConfig.USERNAME_MAX_LENGTH:
+            return username
+        
+        # NOMBRE DEMASIADO LARGO
+        print(f"{Terminal.CURSOR_HIDE}{Color.RED}Username must be less than 15 characters{Style.RESET}")
+        time.sleep(1)
+
+
+def calculate_frame_rate(direction: Direction, speed: int) -> float:
+    """Calcula el tiempo de espera entre frames"""
+    base_rate = 0.5 if direction.is_vertical else 0.3
+    return base_rate / max(1, speed)
+
+
+def show_game_over(game_map: GameMap, score_manager: ScoreManager, current_record: Tuple[float, str, int]) -> None:
+    """Muestra la pantalla de fin de juego con las puntuaciones"""
+    game_map.draw()
+    Style.move_and_print((6, 2), f"{Color.RED}{Style.BOLD}{f'💀 GAME OVER 💀':^{game_map.columns - 2}}{Style.RESET}")
+    Style.move_and_print((7, 2), f"{'―――――――――――――――――――――――――――――――':^{game_map.columns - 1}}")
+    
+    # MOSTRAR EL RANKING
+    ranking = score_manager.get_ranking(GameConfig.SCORE_MAX_LENGTH)
+    for i, record in enumerate(ranking, start=8):
+        timestamp, username, score = record
+        color = f"{Style.BOLD}{Color.MAGENTA}" if timestamp == current_record[0] else Style.RESET
+        item = f"{f'🤖 {username}':<15}{score:>15}"
+        Style.move_and_print((i, 2), f"{color}{item:^{game_map.columns - 2}}{Style.RESET}")
+
 
 # --------------------------------------------------------------------------
 # COMENZAR EL JUEGO
-def start_game():
-    global score, nickname, speed, last_speed, key_pressed, in_pause
-
-    def change_speed(action):
-        # CAMBIAR LA VELOCIDAD Y COMPROBAR SI ESTÁ DENTRO DEL MÍNIMO Y MÁXIMO
-        change = { '+': 1, '-': -1 }
-        new_speed = speed + change[action]
-        return new_speed if is_speed_valid(new_speed) else speed
-
-    def is_speed_valid(new_speed):
-        # COMPROBAR SI LA VELOCIDAD NUEVA ESTÁ ENTRE EL MÍNIMO Y MÁXIMO
-        return MIN_SPEED <= new_speed <= MAX_SPEED
+def main_game_loop() -> None:
+    """Bucle principal del juego"""
+    input_handler = InputHandler()
+    game_map = GameMap(GameConfig.MAP_LINES, GameConfig.MAP_COLUMNS)
+    score_manager = ScoreManager()
     
-    def obtain_frame_rate(action):
-        if action in ['U', 'D']:
-            # HACER QUE SE REDUZCA UN POCO LA VELOCIDAD AL IR EN DIRECCIÓN VERTICAL
-            return 0.5 / speed
-        return 0.3 / speed
-
-    # --------------------------------------------------------------------------
     try:
-        User.total_users = load_scores()
-        map = Map(lines, columns)
-
-        # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO
-        user = User()
-        while user.name == "":
-            map_limits = map.draw_map()
-            user.get_valid_name()
-
-        # SERPIENTE
-        snake = Snake()
-        snake.draw_snake()
-
-        # FRUTA
+        map_limits = game_map.draw()
+        username = get_username(game_map)
+        
+        # INICIALIZAR EL JUEGO
+        snake = Snake(GameConfig.INITIAL_POSITION)
         fruit = Fruit(snake, map_limits)
-        last_color = C_G
-
-        # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
-        start_keyboard()
-        last_key_pressed = 'R'
-        print(CURSOR_HIDE, end="")
-
+        current_score = 0
+        snake.draw()
+        game_map.show_game_info(username, current_score, snake.speed)
+        
+        # INICIAR LA LECTURA DE TECLADO
+        input_handler.start()
+        print(Terminal.CURSOR_HIDE, end="")
+        
+        # VARIABLES DE ESTADO
+        is_paused = False
+        last_speed = snake.speed
+        last_direction = Direction.RIGHT
+        
+        # BUCLE PRINCIPAL
         while True:
-            with lock:
-                action = key_pressed
-
-            # SI EL JUEGO ESTÁ PAUSADO, SALTAR ITERACIONES HASTA QUE NO CAPTURA UNA P
-            if in_pause:
-                if action != 'P':
-                    in_pause = False
-                    speed = last_speed
-                    show_game_info(nickname)
+            # OBTNER LA TECLA DE DIRECCIÓN
+            key = input_handler.get_key()
+            
+            # MANEJAR PAUSA
+            if is_paused:
+                if key == 'P':
+                    is_paused = False
+                    snake.set_speed(last_speed)
+                    game_map.show_game_info(username, current_score, snake.speed)
                 continue
             
-            if action == 'Q':
-                # CONTROLA LA PULSACIÓN DE LA LETRA Q PARA SALIR
-                end_game(map, False)
-            elif action == 'P':
-                # GUARDAR ÚLTIMA VELOCIDAD Y ESTABLECERLA EN 0
-                last_speed = speed
-                speed = 0
-
-                # MOSTRAR ESTADO EN PAUSE
-                in_pause = True
-                show_game_info(nickname)
+            # MANEJAR CONTROLES PRINCIPALES
+            if key == 'Q':
+                break
+            elif key == 'P':
+                is_paused = True
+                last_speed = snake.speed
+                snake.set_speed(0)
+                game_map.show_game_info(username, current_score, snake.speed)
                 continue
-            elif action in ['+', '-']:
-                # CAMBIO DE VELOCIDAD
-                speed = change_speed(action)
-                show_game_info(nickname)
-
-                # VOLVER A LA ÚLTIMA DIRECCIÓN VÁLIDA
-                key_pressed = last_key_pressed
+            elif key in ['+', '-']:
+                snake.adjust_speed(1 if key == '+' else -1)
+                game_map.show_game_info(username, current_score, snake.speed)
+                input_handler.current_key = last_direction
                 continue
             
-            # MOVER LA SERPIENTE A UNA DIRECCIÓN VÁLIDA Y GUARDAR LA POSICIÓN ANTERIOR DE LA COLA.
-            action = snake.get_valid_move(action, last_key_pressed)
-            tail = snake.move_snake(action, last_key_pressed, last_color)
-
-            # COMPROBAR SI SE HA CHOCADO CON UNA FRUTA
-            if fruit.check_eat(snake, tail):
-                # CAMBIAR EL COLOR DE LA CABEZA
-                # change_head_color(snake, action, color=C_LG, reset_color=True)
-                last_color = fruit.color
-
-                # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
+            # CONVERTIR TECLA A DIRECCIÓN
+            try:
+                direction = Direction(key)
+            except ValueError:
+                direction = last_direction
+            
+            # MOVER SERPIENTE
+            removed_tail = snake.move(direction, last_direction)
+            
+            # COMPROBAR SI SE HA COMIDO UNA FRUTA
+            if fruit.is_eaten(snake):
+                snake.grow()
+                if removed_tail:
+                    snake.position.append(removed_tail)
+                    Style.move_and_print(removed_tail, f"{Color.GREEN}■{Style.RESET}")
+                
+                snake.change_head_color(fruit.color, reset=True)
                 fruit = Fruit(snake, map_limits)
-                score = len(snake) - len(initial_position)
-                show_game_info(nickname)
-
-            # COMPROBAR SI SE HA CHOCADO
+                current_score += 1
+                game_map.show_game_info(username, current_score, snake.speed)
+            
+            # COMPROBAR COLISIONES
             if snake.check_collision(map_limits):
-                snake.change_head_color(action, color=C_R, reset_color=False)
-                end_game(map, True)
-
-            # GUARDAR LA ÚLTIMA TECLA Y VELOCIDAD VÁLIDA
-            last_key_pressed = action
-            last_speed = speed
-
-            # TIEMPO DE ESPERA ENTRE CADA FOTOGRAMA
-            frame_rate = obtain_frame_rate(action)
-            time.sleep(frame_rate)
+                snake.change_head_color(Color.RED, reset=False)
+                current_record = score_manager.add_score(username, current_score)
+                time.sleep(1)
+                show_game_over(game_map, score_manager, current_record)
+                break
+            
+            # ACTUALIZAR ESTADO
+            last_direction = direction
+            
+            # CONTROL DE VELOCIDAD
+            frame_delay = calculate_frame_rate(direction, snake.speed)
+            time.sleep(frame_delay)
     except KeyboardInterrupt:
-        end_game(map, False)
-        reset_terminal()
-
-
-# --------------------------------------------------------------------------
-# MOVER EL CURSOR DE LA TERMINAL A UNA POSICIÓN DETERMINADA:
-def move_cursor(line, column):
-    print(f"\033[{line};{column}H", end="")
-
-def move_and_draw_char(position, char):
-    # MOVER CURSOR A UNA POSICIÓN Y PINTAR UN CARACTER. ENCAPSULÉ ESTA FUNCIÓN PORQUE EL PATRÓN SE REPITE VARIAS VECES.
-    move_cursor(*position)
-    print(char)
-
-
-# --------------------------------------------------------------------------
-def show_game_info(username):
-    # DIVIDIR LA ANCHURA DEL MAPA EN 3, YA QUE SE IMPRIMEN 3 STATS
-    anchura = (columns) // 3
-
-    # MOVER EL CURSOR DEBAJO DEL MAPA
-    move_cursor(lines + 6, 0)
-
-    # DEFINIR SI SE IMPRIME LA VELOCIDAD O PAUSE
-    speed_text = speed if speed > 0 else f"{C_R}PAUSE{S_R}"
-
-    # IMPRIMIR CADA STAT Y ALINEARLO A LA ANCHURA A LA IZQUIERDA, CENTRO Y DERECHA
-    print(f" {f'🐍 SCORE: {score}':<{anchura}}", end="")
-    print(f"{f'🚀 SPEED: {speed_text}':^{anchura}}", end="")
-    print(f"{f'🤖 {username}':>{anchura}}", end="")
-
-    # ESTA LÍNEA SOLUCIONA UN PROBLEMA EN EL QUE NO SE CAMBIABA EL TEXTO AL ESTABLECER EL JUEGO EN PAUSE
-    sys.stdout.flush()
-
-
-# --------------------------------------------------------------------------
-def end_game(map, died):
-    def show_thanks_text():
-        map.draw_map()
-        move_cursor((lines // 2) + 5, 2)
-        print(f"{f'THANKS FOR PLAYING!':^{columns}}")
-
-    if died:
-        # SI EL JUGADOR MUERE, CARGA EN UN FICHERO EL HISTÓRICO DE LOS SCORES GUARDADOS POR CADA JUGADOR. DESPUÉS MOSTRAR PUNTUACIONES.
-        registro = save_scores(User.total_users)
-        time.sleep(1)
-        show_scores(map, registro, color_registro=C_M)
-    else:
-        # MOSTRAR UN AGRADECIMIENTO SI SE HA SALIDO DEL JUEGO POR EL BOTÓN Q
-        show_thanks_text()
-
-    # ANTES DE SALIR DEL JUEGO RESTAURAR TECLADO:
-    reset_terminal()
-
-
-def reset_terminal():
-    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    move_cursor(lines + 6, 0)
-    print(CURSOR_SHOW, S_R, end="")
-    sys.exit(1)
-
-
-# --------------------------------------------------------------------------
-def save_scores():
-    # GUARDAR EL NUEVO REGISTRO EN LA LISTA DE SCORES
-    registro = tuple((time.time(), nickname, score))
-    User.total_users.append(registro)
-
-    # GUARDA EN EL FICHERO scores.pkl LA LISTA DE SCORES
-    with open('scores.pkl', 'wb') as file:
-        pickle.dump(User.total_users, file)
-
-    # DEVOLVER EL REGISTRO ACTUAL
-    return registro
-
-
-def load_scores():
-    try:
-        with open('scores.pkl', 'rb') as file:
-            return pickle.load(file)
-    except FileNotFoundError:
-        return []
-
-
-# --------------------------------------------------------------------------
-def show_scores(map, registro_actual, color_registro):
-    map.draw_map()
-    move_and_draw_char([6, 2], f"{C_R}{S_B}{f'💀 GAME OVER 💀':^{columns - 2}}{S_R}")
-    move_and_draw_char([7, 2], f"{'―――――――――――――――――――――――――――――――':^{columns - 1}}")
-
-    # ORDENAR DE MAYOR PUNTUACIÓN A MENOR PUNTUACIÓN LOS 10 MEJORES
-    current_line = 7
-    ranking = sorted(User.total_users, key=lambda score: score[2], reverse=True)
-    for element in ranking[:SCORE_MAX_LENGTH]:
-        # RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL, SI COINCIDE LA FECHA DEL REGISTRO CON LA FECHA DEL ACTUAL
-        color = f"{S_B}{color_registro}" if element[0] == registro_actual[0] else S_R
-        current_line += 1
-        item = f"{f'🤖 {element[1]}':<15}{element[2]:>15}"
-        move_and_draw_char([current_line, 2], f"{color}{item:^{columns - 2}}")
-
+        pass
+    finally:
+        # LIMPIEZA DE LA TERMINAL
+        print(Terminal.CURSOR_SHOW + Style.RESET)
+        print(Style.move_cursor(GameConfig.MAP_LINES + 5, 0))
+        input_handler.stop()
+        
 
 # ==========================================================================
-# EMPEZAR EL JUEGO
-# 
-# Aquí empieza el código del programa
-fd = sys.stdin.fileno()
-old_settings = termios.tcgetattr(fd)
-lock = threading.Lock()
-
-start_game()
+# PUNTO DE ENTRADA
+if __name__ == "__main__":
+    main_game_loop()
