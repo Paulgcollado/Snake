@@ -61,12 +61,8 @@ in_pause = False
 
 # --------------------------------------------------------------------------
 # USUARIO Y PUNTUACIÓN
-nickname = ""
-USERNAME_MAX_LENGTH = 15
-
 score = 0
 SCORE_MAX_LENGTH = 10
-all_scores = []
 
 # --------------------------------------------------------------------------
 # TIEMPO Y VELOCIDAD
@@ -90,20 +86,179 @@ key_pressed = "R"                               # USER LAST KEY PRESSED
 
 
 # ==========================================================================
+# CLASES
+#
+# Clases que usa el programa
+# --------------------------------------------------------------------------
+class Map:
+    def __init__(self, lines, columns):
+        self.lines = lines
+        self.columns = columns
+
+    def draw_map(self):
+        # PINTAR EL BANNER.
+        print(CLEAR_SCREEN, end="")
+        print(f"""  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
+  ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
+  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {C_GRAY}DAW 2026""")
+
+        # DIBUJAR EL MAPA CON SUS FILAS Y SOLUMNAS.
+        print(f"▄"*(columns+2))
+        print(f"█{' '*(columns)}█\n"*lines, end="")
+        print(f"▀"*(columns+2))
+
+        # DEVOLVER LOS LÍMITES DEL MAPA.
+        return { "U": 4, "D": self.lines + 5, "L": 1, "R": self.columns + 2 }
+    
+
+class Snake:
+    def __init__(self):
+        self.position = initial_position[:]
+
+    def draw_snake(self):
+        for fila, columna in self.position:
+            move_and_draw_char([fila, columna], f"{C_G}{SNAKE_HORIZONTAL}")
+    
+    def move_snake(self, direction, last_direction, head_color):
+        head = self.position[0]
+        tail = self.position.pop()
+
+        # SUMARLE O RESTARLE 1 DEPENDIENDO DE LA DIRECCIÓN
+        movement = { "U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1) }
+        head = head[0] + movement[direction][0], head[1] + movement[direction][1]
+
+        # AÑADIR LA NUEVA CABEZA
+        self.position.insert(0, head)
+        character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
+        move_and_draw_char(head, f"{head_color}{character}")
+        move_and_draw_char(self.position[1], f"{C_G}{character}")
+
+        # COMPROBAR SI HA GIRADO Y MOSTRAR UN CARÁCTER DISTINTO EN LOS GIROS DEL CUERPO.
+        if self.__is_turning(direction, last_direction):
+            move_and_draw_char(self.position[1], f"{C_G}{SNAKE_TURN}")
+
+        # BORRAR LA COLA PINTANDO UN ESPACIO EN BLANCO
+        move_and_draw_char(tail, " ")
+        return tail
+    
+    def get_valid_move(self, direction, last_direction):
+        opposites = { 'U': 'D', 'D': 'U', 'L': 'R', 'R': 'L' }
+        for case in opposites.keys():
+            if direction == case and last_direction == opposites[case]:
+                return last_direction
+        return direction
+    
+    def change_head_color(self, direction, color, reset_color):
+        head = self.position[0]
+        character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
+        move_and_draw_char(head, f"{color}{character}{S_R}")
+        if reset_color:
+            time.sleep(EAT_WAIT_TIME)
+            move_and_draw_char(head, f"{C_G}{character}{S_R}")
+    
+    def __is_turning(self, direction, last_direction):
+        vertical = ['U', 'D']
+        horizontal = ['L', 'R']
+
+        if direction in vertical and last_direction in horizontal:
+            return True
+        elif direction in horizontal and last_direction in vertical:
+            return True
+
+        return False
+    
+    def check_collision(self, map_limits):
+        head = self.position[0]
+        if head in self.position[1:] or not self.__in_limits(head, map_limits):
+            return True
+        
+        return False
+    
+    def __in_limits(self, head, map_limits):
+        if not map_limits['D'] > head[0] > map_limits['U']:
+            return False
+        elif not map_limits['L'] < head[1] < map_limits['R']:
+            return False
+        
+        return True
+    
+    def add_tail(self, tail):
+        self.position.append(tail)
+        move_and_draw_char(tail, f"{C_G}■{S_R}")
+    
+    def __len__(self):
+        return len(self.position)
+
+
+class Fruit:
+    def __init__(self, snake, map_limits):
+        self.position = self.__get_position(snake, map_limits)
+        self.color = self.__get_random_color()
+        self.draw_fruit()
+
+    def draw_fruit(self):
+        move_and_draw_char(self.position, f"{self.color}⬤{S_R}")
+
+    def __get_valid_range(self, snake, lines, columns):
+        map_range = []
+        for line in lines:
+            for column in columns:
+                coordenada = tuple([line, column])
+                if coordenada not in snake.position:
+                    map_range.append(coordenada)
+        return map_range
+
+    def __get_position(self, snake, map_limits):
+        lines = list(range(map_limits['U'] + 1, map_limits['D']))
+        columns = list(range(map_limits['L'] + 1, map_limits['R']))
+
+        # GENERAR EL RANGO DE POSICIONES
+        map_range = self.__get_valid_range(snake, lines, columns)
+        self.position = (random.choice(map_range))
+        return self.position
+    
+    def __get_random_color(self):
+        colors = [C_G, C_LG, C_R, C_Y, C_LR, C_B, C_M, C_C, C_GRAY]
+        return random.choice(colors)
+    
+    def check_eat(self, snake, tail):
+        head = snake.position[0]
+        if head == self.position:
+            snake.add_tail(tail)
+            return True
+        return False
+
+
+class User:
+    USERNAME_MAX_LENGTH = 15
+    total_users = []
+
+    def __init__(self):
+        self.name = ""
+        self.score = 0
+    
+    def get_valid_name(self):
+        # PEDIR NOMBRE DE USUARIO
+        move_cursor(lines + 6, 0)
+        new_username = input(f" {CURSOR_SHOW}{S_R}{S_B}🤖 PLAYER NAME: {S_R}{C_GRAY}")
+
+        # COMPROBAR SI SU LONGITUD ES MAYOR DE LA MÁXIMA PERMITIDA
+        if len(new_username) >= User.USERNAME_MAX_LENGTH:
+            print(f"{CURSOR_HIDE}{C_R}Username must be less than 15 characters{S_R}")
+            time.sleep(1)
+            self.name = ""
+
+        show_game_info(new_username)
+        self.name = new_username
+
+
+# ==========================================================================
 # FUNCIONES
 #
 # Estas son todas las funciones que usa el programa
 # --------------------------------------------------------------------------
 # CAPTURA DEL TECLADO
 def start_keyboard():
-    """
-    Capture keystrokes in background using threads:
-        Q, P, UP, DOWN, LEFT, RIGHT: save key value in {key_pressed} variable
-        +, -: modify {speed} variable in 0.05 steeps
- 
-    GLOBAL VARIABLES MODIFIED
-      {key_pressed}
-    """
     def read_keyboard():
         global key_pressed
         try:
@@ -142,30 +297,10 @@ def start_keyboard():
     key_thread.start()
     return key_thread
 
-
+# --------------------------------------------------------------------------
 # COMENZAR EL JUEGO
 def start_game():
-    global score, all_scores, nickname, speed, last_speed, key_pressed, in_pause
-
-    def get_valid_username():
-        # PEDIR NOMBRE DE USUARIO
-        move_cursor(lines + 6, 0)
-        new_username = input(f" {CURSOR_SHOW}{S_R}{S_B}🤖 PLAYER NAME: {S_R}{C_GRAY}")
-
-        # COMPROBAR SI SU LONGITUD ES MAYOR DE LA MÁXIMA PERMITIDA
-        if len(new_username) >= USERNAME_MAX_LENGTH:
-            print(f"{CURSOR_HIDE}{C_R}Username must be less than 15 characters{S_R}")
-            time.sleep(1)
-            return ""
-        show_game_info(new_username)
-        return new_username
-    
-    def get_valid_move(direction, last_direction):
-        opposites = { 'U': 'D', 'D': 'U', 'L': 'R', 'R': 'L' }
-        for case in opposites.keys():
-            if direction == case and last_direction == opposites[case]:
-                return last_direction
-        return direction
+    global score, nickname, speed, last_speed, key_pressed, in_pause
 
     def change_speed(action):
         # CAMBIAR LA VELOCIDAD Y COMPROBAR SI ESTÁ DENTRO DEL MÍNIMO Y MÁXIMO
@@ -185,21 +320,22 @@ def start_game():
 
     # --------------------------------------------------------------------------
     try:
-        # CARGAR LAS PUNTUACIONES DEL FICHERO SI EXISTE
-        all_scores = load_scores()
+        User.total_users = load_scores()
+        map = Map(lines, columns)
 
         # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO
-        while nickname == "":
-            # PINTAR EL MAPA. SE GUARDAN SUS LÍMITES EN UNA VARIABLE.
-            map_limits = draw_map()
-            nickname = get_valid_username()
+        user = User()
+        while user.name == "":
+            map_limits = map.draw_map()
+            user.get_valid_name()
 
-        # DIBUJAR LA SERPIETE Y LA FRUTA
-        snake = initial_position[:]
-        draw_snake(snake)
-        color_fruit = get_random_color()
+        # SERPIENTE
+        snake = Snake()
+        snake.draw_snake()
+
+        # FRUTA
+        fruit = Fruit(snake, map_limits)
         last_color = C_G
-        fruit = draw_fruit(snake, color_fruit, map_limits)
 
         # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
         start_keyboard()
@@ -220,7 +356,7 @@ def start_game():
             
             if action == 'Q':
                 # CONTROLA LA PULSACIÓN DE LA LETRA Q PARA SALIR
-                end_game(False)
+                end_game(map, False)
             elif action == 'P':
                 # GUARDAR ÚLTIMA VELOCIDAD Y ESTABLECERLA EN 0
                 last_speed = speed
@@ -240,25 +376,24 @@ def start_game():
                 continue
             
             # MOVER LA SERPIENTE A UNA DIRECCIÓN VÁLIDA Y GUARDAR LA POSICIÓN ANTERIOR DE LA COLA.
-            action = get_valid_move(action, last_key_pressed)
-            tail = move_snake(snake, last_color, action, last_key_pressed)
+            action = snake.get_valid_move(action, last_key_pressed)
+            tail = snake.move_snake(action, last_key_pressed, last_color)
 
             # COMPROBAR SI SE HA CHOCADO CON UNA FRUTA
-            if check_eat(snake, tail, fruit):
+            if fruit.check_eat(snake, tail):
                 # CAMBIAR EL COLOR DE LA CABEZA
                 # change_head_color(snake, action, color=C_LG, reset_color=True)
-                last_color = color_fruit
+                last_color = fruit.color
 
                 # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
-                color_fruit = get_random_color()
-                fruit = draw_fruit(snake, color_fruit, map_limits)
+                fruit = Fruit(snake, map_limits)
                 score = len(snake) - len(initial_position)
                 show_game_info(nickname)
 
             # COMPROBAR SI SE HA CHOCADO
-            if check_collision(snake, map_limits):
-                change_head_color(snake, action, color=C_R, reset_color=False)
-                end_game(True)
+            if snake.check_collision(map_limits):
+                snake.change_head_color(action, color=C_R, reset_color=False)
+                end_game(map, True)
 
             # GUARDAR LA ÚLTIMA TECLA Y VELOCIDAD VÁLIDA
             last_key_pressed = action
@@ -268,39 +403,14 @@ def start_game():
             frame_rate = obtain_frame_rate(action)
             time.sleep(frame_rate)
     except KeyboardInterrupt:
-        end_game(False)
+        end_game(map, False)
         reset_terminal()
-
-
-# --------------------------------------------------------------------------
-# DIBUJAR EL MAPA.
-def draw_map():
-    """
-    Pinta el mapa en la pantalla y devuelve los límites del mapa
-    """
-    # PINTAR EL BANNER.
-    print(CLEAR_SCREEN, end="")
-    print(f"""  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
-  ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
-  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {C_GRAY}DAW 2026""")
-
-    # DIBUJAR EL MAPA CON SUS FILAS Y SOLUMNAS.
-    print(f"▄"*(columns+2))
-    print(f"█{' '*(columns)}█\n"*lines, end="")
-    print(f"▀"*(columns+2))
-
-    # DEVOLVER UN DICCIONARIO CON LOS LÍMITES DEL MAPA.
-    return { "U": 4, "D": lines + 5, "L": 1, "R": columns + 2 }
 
 
 # --------------------------------------------------------------------------
 # MOVER EL CURSOR DE LA TERMINAL A UNA POSICIÓN DETERMINADA:
 def move_cursor(line, column):
-    """
-    Move cursor to specified terminal line and column
-    """
     print(f"\033[{line};{column}H", end="")
-
 
 def move_and_draw_char(position, char):
     # MOVER CURSOR A UNA POSICIÓN Y PINTAR UN CARACTER. ENCAPSULÉ ESTA FUNCIÓN PORQUE EL PATRÓN SE REPITE VARIAS VECES.
@@ -309,161 +419,7 @@ def move_and_draw_char(position, char):
 
 
 # --------------------------------------------------------------------------
-# DIBUJAR LA SERPIENTE:
-def draw_snake(snake):
-    """
-    Dado a una lista de tuplas, dibuja, para cada coordenada, el cuerpo de la serpiente
-    """
-    for fila, columna in snake:
-        move_and_draw_char([fila, columna], f"{C_G}{SNAKE_HORIZONTAL}")
-
-
-# MOVER LA SERPIENTE:
-def move_snake(snake, head_color, direction, last_direction):
-    """Dado a una lista de tuplas y una dirección, se añade una nueva coordenada al principio de la lista
-    y se elimina el último, dando la sensación de movimiento.
-    
-    VARIABLES
-        snake: Lista de tuplas con las coordenadas de la serpiente
-        direction: La dirección a la que se va a mover: ('U', 'D', 'L', 'R')
-        last_direction: La dirección anterior"""
-    def is_turning(direction, last_direction):
-        # DIRECCIONES VERTICAL Y HORIZONTAL
-        vertical = ['U', 'D']
-        horizontal = ['L', 'R']
-
-        # SI SE HA GIRADO EL EJE ACTUAL CAMBIA CON RESPECTO AL ANTERIOR
-        if direction in vertical and last_direction in horizontal:
-            return True
-        elif direction in horizontal and last_direction in vertical:
-            return True
-        
-        # NO SE HA GIRADO
-        return False
-
-    # OBTENER LAS COORDENADAS DE LA CABEZA Y LA COLA.
-    head = snake[0]
-    tail = snake.pop()
-
-    # SUMARLE O RESTARLE 1 DEPENDIENDO DE LA DIRECCIÓN
-    movement = { "U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1) }
-    head = head[0] + movement[direction][0], head[1] + movement[direction][1]
-
-    # AÑADE LA NUEVA CABEZA AL PRINCIPIO DE LA LISTA
-    snake.insert(0, head)
-
-    # PINTAR LA NUEVA CABEZA DEPENDIENDO DEL MOVIMIENTO.
-    character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
-    move_and_draw_char(head, f"{head_color}{character}")
-    move_and_draw_char(snake[1], f"{C_G}{character}")
-
-    # COMPROBAR SI HA GIRADO Y MOSTRAR UN CARÁCTER DISTINTO EN LOS GIROS DEL CUERPO.
-    if is_turning(direction, last_direction):
-        move_and_draw_char(snake[1], f"{C_G}{SNAKE_TURN}")
-
-    # BORRAR LA COLA PINTANDO UN ESPACIO EN BLANCO
-    move_and_draw_char(tail, " ")
-
-    # DEVUELVE LA POSICIÓN DE LA COLA ELIMINADA PARA USARLA LUEGO:
-    return tail
-
-
-def change_head_color(snake, direction, color, reset_color):
-    # OBTENER LA CABEZA Y CAMBIAR DE COLOR
-    head = snake[0]
-    character = SNAKE_HORIZONTAL if direction in ['L', 'R'] else SNAKE_VERTICAL
-    move_and_draw_char(head, f"{color}{character}{S_R}")
-    
-    # VOLVER A RESETEAR EL COLOR SI SE PIDE
-    if reset_color:
-        time.sleep(EAT_WAIT_TIME)
-        move_and_draw_char(head, f"{C_G}{character}{S_R}")
-
-# --------------------------------------------------------------------------
-# SI EL JUGADOR SE HA CHOCADO
-def check_collision(snake, map_limits):
-    """
-    Devuelve TRUE si se ha chocado con sigo misma o ha sobrepasado los límites del mapa. FALSE en caso contrario.
-    """
-    def in_limits(head, map_limits):
-        # SI LA POSICIÓN VERTICAL DE LA CABEZA ESTÁ FUERA DE LOS LÍMITES DEL MAPA:
-        if not map_limits['D'] > head[0] > map_limits['U']:
-            return False
-        # SI LA POSICIÓN HORIZONTAL DE LA CABEZA ESTÁ FUERA DE LOS LÍMITES DEL MAPA:
-        elif not map_limits['L'] < head[1] < map_limits['R']:
-            return False
-        
-        # ESTÁ DENTRO DE LOS LÍMITES
-        return True
-
-    # GUARDAR LA POSICIÓN DE LA CABEZA
-    head = snake[0]
-
-    # COMPROBAR SI LA CABEZA COINCIDE CON ALGUNA DE LAS COORDENADAS DE SU CUERPO, O SI NO ESTÁ DENTRO DE LOS LÍMITES DEL MAPA.
-    if head in snake[1:] or not in_limits(head, map_limits):
-        return True
-
-    # NO HA CHOCADO CON NADA
-    return False
-
-
-# --------------------------------------------------------------------------
-def draw_fruit(snake, color, map_limits):
-    """
-    Pinta una fruta en la pantalla en una coordenada aleatoria dentro de los límites del mapa y fuera del cuerpo de la serpiente
-    """
-    def get_valid_range(snake, lines, columns):
-        map_range = []
-        for line in lines:
-            for column in columns:
-                coordenada = tuple([line, column])
-                # FILTRAR LAS POSICIONES DONDE SE UBIQUE EL CUERPO DE LA SERPIENTE
-                if coordenada not in snake:
-                    map_range.append(coordenada)
-        return map_range
-
-    # GUARDAR EL RANGO HORIZONTAL Y VERTICAL DEL MAPA:
-    lines = list(range(map_limits['U'] + 1, map_limits['D']))
-    columns = list(range(map_limits['L'] + 1, map_limits['R']))
-
-    # GENERAR EL RANGO DE POSICIONES DONDE PUEDE CREARSE UNA FRUTA
-    map_range = get_valid_range(snake, lines, columns)
-
-    # MOVER EL CURSOR A UNA POSICIÓN ALEATORIA DENTRO DE MAP_RANGE Y PINTAR LA FRUTA.
-    fruit_position = (random.choice(map_range))
-    move_and_draw_char(fruit_position, f"{color}⬤{S_R}")
-
-    # DEVOLVER LA POSICIÓN DE LA FRUTA CREADA:
-    return fruit_position
-
-
-def get_random_color():
-    colors = [C_G, C_LG, C_R, C_Y, C_LR, C_B, C_M, C_C, C_GRAY]
-    return random.choice(colors)
-
-
-# --------------------------------------------------------------------------
-def check_eat(snake, tail, fruit):
-    """
-    Comprueba si las coordenadas de la cabeza de la serpiente coinciden con las de la fruta.
-    """
-    head = snake[0]
-
-    # SI LAS COORDENADAS DE LA CABEZA COINCIDEN CON LAS DE LA FRUTA
-    if head == fruit:
-        # AÑADIMOS LA COLA A LA SERPIENTE Y LA PINTAMOS
-        snake.append(tail)
-        move_and_draw_char(tail, f"{C_G}■{S_R}")
-        return True
-    
-    return False
-
-
-# --------------------------------------------------------------------------
 def show_game_info(username):
-    """
-    Esta funcion imprime el Score, la velocidad del juego, y el nombre de usuario debajo del mapa
-    """
     # DIVIDIR LA ANCHURA DEL MAPA EN 3, YA QUE SE IMPRIMEN 3 STATS
     anchura = (columns) // 3
 
@@ -483,21 +439,17 @@ def show_game_info(username):
 
 
 # --------------------------------------------------------------------------
-def end_game(died):
+def end_game(map, died):
     def show_thanks_text():
-        # LIMPIAR LA PANTALLA
-        print(CLEAR_SCREEN)
-        draw_map()
-
-        # IMPRIMIR TEXTO
+        map.draw_map()
         move_cursor((lines // 2) + 5, 2)
         print(f"{f'THANKS FOR PLAYING!':^{columns}}")
 
     if died:
         # SI EL JUGADOR MUERE, CARGA EN UN FICHERO EL HISTÓRICO DE LOS SCORES GUARDADOS POR CADA JUGADOR. DESPUÉS MOSTRAR PUNTUACIONES.
-        registro = save_scores(all_scores)
+        registro = save_scores(User.total_users)
         time.sleep(1)
-        show_scores(registro, color_registro=C_M)
+        show_scores(map, registro, color_registro=C_M)
     else:
         # MOSTRAR UN AGRADECIMIENTO SI SE HA SALIDO DEL JUEGO POR EL BOTÓN Q
         show_thanks_text()
@@ -514,47 +466,39 @@ def reset_terminal():
 
 
 # --------------------------------------------------------------------------
-def save_scores(all_scores):
+def save_scores():
     # GUARDAR EL NUEVO REGISTRO EN LA LISTA DE SCORES
     registro = tuple((time.time(), nickname, score))
-    all_scores.append(registro)
+    User.total_users.append(registro)
 
     # GUARDA EN EL FICHERO scores.pkl LA LISTA DE SCORES
     with open('scores.pkl', 'wb') as file:
-        pickle.dump(all_scores, file)
+        pickle.dump(User.total_users, file)
 
     # DEVOLVER EL REGISTRO ACTUAL
     return registro
 
 
 def load_scores():
-    # CARGA EL FICHERO scores.pkl (SI EXISTE)
     try:
         with open('scores.pkl', 'rb') as file:
             return pickle.load(file)
-    # SI NO EXISTE EL FICHERO, LA LISTA DE SCORES SE QUEDA VACÍA
     except FileNotFoundError:
         return []
 
 
 # --------------------------------------------------------------------------
-def show_scores(registro_actual, color_registro):
-    # LIMPIAR LA PANTALLA
-    print(CLEAR_SCREEN)
-    draw_map()
-
-    # IMPRIMIR GAME OVER
+def show_scores(map, registro_actual, color_registro):
+    map.draw_map()
     move_and_draw_char([6, 2], f"{C_R}{S_B}{f'💀 GAME OVER 💀':^{columns - 2}}{S_R}")
     move_and_draw_char([7, 2], f"{'―――――――――――――――――――――――――――――――':^{columns - 1}}")
 
     # ORDENAR DE MAYOR PUNTUACIÓN A MENOR PUNTUACIÓN LOS 10 MEJORES
     current_line = 7
-    ranking = sorted(all_scores, key=lambda score: score[2], reverse=True)
+    ranking = sorted(User.total_users, key=lambda score: score[2], reverse=True)
     for element in ranking[:SCORE_MAX_LENGTH]:
         # RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL, SI COINCIDE LA FECHA DEL REGISTRO CON LA FECHA DEL ACTUAL
         color = f"{S_B}{color_registro}" if element[0] == registro_actual[0] else S_R
-        
-        # IMPRIMIR REGISTRO
         current_line += 1
         item = f"{f'🤖 {element[1]}':<15}{element[2]:>15}"
         move_and_draw_char([current_line, 2], f"{color}{item:^{columns - 2}}")
