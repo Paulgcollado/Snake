@@ -57,18 +57,14 @@ C_GRAY="\033[37m"                               # COLOR GRAY
 # CONFIGURACIÓN DEL JUEGO
 lines = 15                                      # MAP SIZE LINES
 columns = 50                                    # MAP SIZE COLUMNS
-in_pause = False
 
 # --------------------------------------------------------------------------
 # USUARIO Y PUNTUACIÓN
-nickname = ""
 USERNAME_MAX_LENGTH = 15
 SCORE_MAX_LENGTH = 10
 
 # --------------------------------------------------------------------------
 # TIEMPO Y VELOCIDAD
-speed = 5
-last_speed = 5
 MIN_SPEED = 1
 MAX_SPEED = 15
 FRAME_RATE = 0.05
@@ -93,14 +89,6 @@ key_pressed = "R"                               # USER LAST KEY PRESSED
 # --------------------------------------------------------------------------
 # CAPTURA DEL TECLADO
 def start_keyboard():
-    """
-    Capture keystrokes in background using threads:
-        Q, P, UP, DOWN, LEFT, RIGHT: save key value in {key_pressed} variable
-        +, -: modify {speed} variable in 0.05 steeps
- 
-    GLOBAL VARIABLES MODIFIED
-      {key_pressed}
-    """
     def read_keyboard():
         global key_pressed
         try:
@@ -108,7 +96,7 @@ def start_keyboard():
             tty.setcbreak(fd)
             while key_read != "q":
                 ch1 = sys.stdin.read(1)
-                if ch1 == '\x1b':  # posible flecha
+                if ch1 == '\x1b':
                     ch2 = sys.stdin.read(1)
                     ch3 = sys.stdin.read(1)
                     k = ch1 + ch2 + ch3
@@ -120,16 +108,14 @@ def start_keyboard():
                         key_read = "R"
                     elif k == '\x1b[D':
                         key_read = "L"
-                elif ch1 == 'q':
+                elif ch1 in ['q', 'Q']:
                     key_read = "Q"
                 # AÑADIR LA TECLA P PARA EL PAUSE.    
-                elif ch1 == 'p':
+                elif ch1 in ['p', 'P']:
                     key_read = "P"
                 # AÑADIR LAS TECLAS + Y -
-                elif ch1 == '+':
-                    key_read = "+"
-                elif ch1 == '-':
-                    key_read = "-"
+                elif ch1 in ['+', '-']:
+                    key_read = ch1
                 with lock:
                     key_pressed = key_read                    
         finally:
@@ -142,20 +128,26 @@ def start_keyboard():
 
 # COMENZAR EL JUEGO
 def start_game():
-    global nickname, speed, last_speed, key_pressed, in_pause
+    global key_pressed
     try:
+        # INICIZALIZAR VARIABLES
+        username = ""
+        speed = 5
+        last_speed = 5
+        score = 0
+        in_pause = False
+        snake = initial_position[:]
+
         # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO
-        while nickname == "":
+        while username == "":
             # PINTAR EL MAPA. SE GUARDAN SUS LÍMITES EN UNA VARIABLE.
             map_limits = draw_map()
-            nickname = get_valid_username()
-        print(CURSOR_HIDE, end="")
+            username = get_valid_username()
 
-        # DIBUJAR LA SERPIETE Y LA FRUTA
-        snake = initial_position[:]
+        # DIBUJAR LA SERPIETE, LA FRUTA Y LA INFORMACIÓN DE USUARIO
         draw_snake(snake)
         fruit = draw_fruit(snake, map_limits)
-        score = 0
+        show_game_info(username, score, speed)
 
         # POR DEFECTO, LA PRIMERA TECLA SERÁ A LA DERECHA
         start_keyboard()
@@ -170,7 +162,7 @@ def start_game():
                 if action != 'P':
                     in_pause = False
                     speed = last_speed
-                    show_game_info(nickname, score)
+                    show_game_info(username, score, speed)
                 continue
             
             # CONTROL DE ACCIONES
@@ -183,12 +175,12 @@ def start_game():
                 last_speed = speed
                 speed = 0
                 in_pause = True
-                show_game_info(nickname, score)
+                show_game_info(username, score, speed)
                 continue
             elif action in ['+', '-']:
                 # CAMBIAR VELOCIDAD
-                speed = change_speed(action)
-                show_game_info(nickname, score)
+                speed = change_speed(speed, action)
+                show_game_info(username, score, speed)
                 key_pressed = last_key_pressed
                 continue
             
@@ -203,12 +195,12 @@ def start_game():
                 # PINTAR FRUTA NUEVA Y ACTUALIZAR SCORE
                 fruit = draw_fruit(snake, map_limits)
                 score += 1
-                show_game_info(nickname, score)
+                show_game_info(username, score, speed)
 
             # COMPROBAR SI SE HA CHOCADO
             if check_collision(snake, map_limits):
                 scores = load_scores()
-                record = save_scores(nickname, score, scores)
+                record = save_scores(username, score, scores)
                 change_head_color(snake, action, color=C_R, reset_color=False)
                 end_game(record)
                 break
@@ -218,14 +210,14 @@ def start_game():
             last_speed = speed
 
             # TIEMPO DE ESPERA ENTRE CADA FOTOGRAMA
-            frame_rate = obtain_frame_rate(action)
+            frame_rate = obtain_frame_rate(speed, action)
             time.sleep(frame_rate)
     except KeyboardInterrupt:
         end_game()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         move_cursor(lines + 6, 0)
-        print(CURSOR_SHOW, S_R, end="")
+        print(f"{CURSOR_SHOW}{S_R}", end="")
         sys.exit(1)
 
 def get_valid_username() -> str:
@@ -238,7 +230,7 @@ def get_valid_username() -> str:
         print(f"{CURSOR_HIDE}{C_R}Username must be less than 15 characters{S_R}")
         time.sleep(1)
         return ""
-    # show_game_info(new_username)
+    print(CURSOR_HIDE, end="")
     return new_username
     
 def get_valid_move(direction: str, last_direction: str) -> str:
@@ -248,13 +240,13 @@ def get_valid_move(direction: str, last_direction: str) -> str:
             return last_direction
     return direction
 
-def change_speed(action: str) -> int:
+def change_speed(speed: int, action: str) -> int:
     # CAMBIAR LA VELOCIDAD Y COMPROBAR SI ESTÁ DENTRO DEL MÍNIMO Y MÁXIMO
     change = { '+': 1, '-': -1 }
     new_speed = speed + change[action]
     return new_speed if MIN_SPEED <= new_speed <= MAX_SPEED else speed
 
-def obtain_frame_rate(action: str) -> float:
+def obtain_frame_rate(speed: int, action: str) -> float:
     # HACER QUE SE REDUZCA UN POCO LA VELOCIDAD AL IR EN DIRECCIÓN VERTICAL
     vertical_speed = 0.5 / speed
     horizontal_speed = 0.3 / speed 
@@ -421,10 +413,10 @@ def check_eat(snake: list, tail: tuple, fruit_position: tuple) -> bool:
 
 
 # --------------------------------------------------------------------------
-def show_game_info(username: str, score: int) -> None:
+def show_game_info(username: str, score: int, speed: int) -> None:
     """Esta funcion imprime el Score, la velocidad del juego, y el nombre de usuario debajo del mapa"""
     width = (columns) // 3
-    speed_text = speed if speed > 0 else f"{C_R}PAUSE{S_R}"
+    speed_text = speed if speed > 0 else f"{C_R}PAUSE{S_R}  "
 
     # IMPRIMIR CADA INFO DEBAJO DEL MAPA Y ALINEARLO A LA ANCHURA A LA IZQUIERDA, CENTRO Y DERECHA
     move_cursor(lines + 6, 0)
@@ -458,9 +450,7 @@ def save_scores(username: str, score: int, scores: list) -> tuple:
     # GUARDA EN EL FICHERO scores.pkl LA LISTA DE SCORES
     with open('scores.pkl', 'wb') as file:
         pickle.dump(scores, file)
-
-    # DEVOLVER EL REGISTRO ACTUAL
-    return registro
+        return registro
 
 
 def load_scores() -> list:
@@ -483,10 +473,8 @@ def show_scores(registro_actual: tuple, color_registro) -> None:
     scores = load_scores()
     ranking = sorted(scores, key=lambda score: score[2], reverse=True)
     for i, element in enumerate(ranking[:SCORE_MAX_LENGTH], 8):
-        # RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL, SI COINCIDE LA FECHA DEL REGISTRO CON LA FECHA DEL ACTUAL
+        # IMPRIMIR CADA REGISTRO Y RESALTAR EN COLOR DISTINTO LA PARTIDA ACTUAL
         color = f"{S_B}{color_registro}" if element[0] == registro_actual[0] else S_R
-        
-        # IMPRIMIR REGISTRO
         item = f"{f'🤖 {element[1]}':<15}{element[2]:>15}"
         move_and_print([i, 2], f"{color}{item:^{columns - 2}}")
 
