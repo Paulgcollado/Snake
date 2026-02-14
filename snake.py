@@ -32,9 +32,12 @@ from abc import ABC, abstractmethod
 #
 # Estas son las variables que serán accesibles desde cualquier parte del programa
 # --------------------------------------------------------------------------
+global key_pressed
+
+lines = 15
+columns = 50
 initial_position = [(10, 10), (10, 9), (10, 8), (10, 7)]
 key_pressed = "R"
-
 
 # ==========================================================================
 # CLASES
@@ -46,8 +49,8 @@ class Drawable(ABC):
         pass
 
 class Cursor:
-    CURSOR_HIDE="\033[?25l"                         # HIDE CURSOR
-    CURSOR_SHOW="\033[?25h"                         # SHOW CURSOR
+    HIDE="\033[?25l"                                # HIDE CURSOR
+    SHOW="\033[?25h"                                # SHOW CURSOR
     CLEAR_SCREEN="\033c"                            # CLEAR SCREEN
     S_R="\033[0m"                                   # STYLE RESET
     S_D="\033[2m"                                   # STYLE DIM
@@ -55,11 +58,13 @@ class Cursor:
     R_L="\033[2K"                                   # REMOVE LINE
     M_U="\033[A"                                    # MOVE UP 1 LINE
 
-    def move_cursor(self, line: int, column: int) -> None:
+    @staticmethod
+    def move_cursor(line: int, column: int) -> None:
         print(f"\033[{line};{column}H", end="")
     
-    def move_and_print(self, position: tuple, text: str) -> None:
-        self.move_cursor(*position)
+    @staticmethod
+    def move_and_print(position: tuple, text: str) -> None:
+        Cursor.move_cursor(*position)
         print(text)
 
 class Color:
@@ -78,8 +83,8 @@ class Map(Drawable):
         self.lines = lines
         self.columns = columns
         self.banner = f"""  ╔═╗╦ ╦╔╦╗╦ ╦╔═╗╔╗╔  ╔═╗╔╗╔╔═╗╦╔═╔═╗
-    ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
-    ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {Color.GRAY}DAW 2026"""
+  ╠═╝╚╦╝ ║ ╠═╣║ ║║║║  ╚═╗║║║╠═╣╠╩╗╠╣ 
+  ╩   ╩  ╩ ╩ ╩╚═╝╝╚╝  ╚═╝╝╚╝╩ ╩╩ ╩╚═╝     {Color.GRAY}DAW 2026"""
         
     @property
     def limits(self) -> dict:
@@ -88,8 +93,8 @@ class Map(Drawable):
     def get_valid_range(self, snake) -> list:
         lines = list(range(self.limits['U'] + 1, self.limits['D']))
         columns = list(range(self.limits['L'] + 1, self.limits['R']))
+        
         map_range = []
-
         for line in lines:
             for column in columns:
                 coordenada = tuple([line, column])
@@ -133,7 +138,7 @@ class Snake(Drawable):
     def move(self, last_direction) -> tuple:
         # CALCULAR NUEVA POSICIÓN
         movement = { "U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1) }
-        newHead = self.head + movement[self.direction][0], self.head + movement[self.direction][1]
+        newHead = self.head[0] + movement[self.direction][0], self.head[1] + movement[self.direction][1]
         self.body.insert(0, newHead)
 
         # PINTAR NUEVA CABEZA.
@@ -142,37 +147,33 @@ class Snake(Drawable):
 
         # COMPROBAR SI HA GIRADO.
         if self.is_turning(last_direction):
-            Cursor.move_and_print(self.body[1], f"{Color.GREEN}{self.symbol["TURN"]}")
+            Cursor.move_and_print(self.body[1], f"{Color.GREEN}{self.symbol['TURN']}")
 
         # BORRAR LA COLA.
         tail = self.body.pop()
         Cursor.move_and_print(tail, " ")
         return tail
     
-    def check_collision(self) -> bool:
-        if self.head in self.body[1:] or not self.in_limits:
+    def check_collision(self, map) -> bool:
+        if self.head in self.body[1:] or not self.in_limits(map):
             return True
         return False
     
-    def check_eat(self, tail, fruit_position) -> bool:
-        if self.head == fruit_position:
+    def check_eat(self, tail, fruit) -> bool:
+        if self.head == fruit.position:
             self.body.append(tail)
             Cursor.move_and_print(tail, f"{Color.GREEN}■{Cursor.S_R}")
             return True
         return False
     
-    def get_valid_move(self, last_direction) -> str:
+    def is_invalid_move(self, new_direction, last_direction) -> str:
         opposites = { 'U': 'D', 'D': 'U', 'L': 'R', 'R': 'L' }
-        for case in opposites.keys():
-            if self.direction == case and last_direction == opposites[case]:
-                return last_direction
-        return self.direction
-    
-    @property
-    def in_limits(self) -> bool:
-        if not self.limits['D'] > self.head > self.limits['U']:
+        return new_direction == opposites[last_direction]
+
+    def in_limits(self, map) -> bool:
+        if not map.limits['D'] > self.head[0] > map.limits['U']:
             return False
-        elif not self.limits['L'] < self.head < self.limits['R']:
+        elif not map.limits['L'] < self.head[1] < map.limits['R']:
             return False
         return True
     
@@ -195,22 +196,21 @@ class Snake(Drawable):
     
     def draw(self) -> None:
         for fila, columna in self.body:
-            Cursor.move_and_print([fila, columna], f"{Color.GREEN}{self.symbol["HORIZONTAL"]}")
+            Cursor.move_and_print([fila, columna], f"{Color.GREEN}{self.symbol['HORIZONTAL']}")
 
 class Fruit(Drawable):
     symbol = f"⬤{Cursor.S_R}"
 
     def __init__(self, range):
         self.position = (random.choice(range))
-        self.color = self.__get_random_color()
+        self.color = self._get_random_color()
     
-    def __get_random_color() -> str:
+    def _get_random_color(self) -> str:
         colors = [Color.GREEN, Color.LIGHT_GREEN, Color.RED, Color.YELLOW, Color.LIGHT_RED, Color.BLUE, Color.MAGENTA, Color.CYAN, Color.GRAY]
         return random.choice(colors)
     
     def draw(self) -> tuple:
-        color = self.__get_random_color()
-        Cursor.move_and_print(self.position, f"{color}{self.symbol}")
+        Cursor.move_and_print(self.position, f"{self.color}{self.symbol}")
     
 class ScoreManager(Drawable):
     SCORE_MAX_LENGTH = 10
@@ -227,18 +227,18 @@ class ScoreManager(Drawable):
     def load(self) -> list:
         try:
             with open(self.path, 'rb') as file:
-                return pickle.load(file)
+                self.scores = pickle.load(file)
         except FileNotFoundError:
-            return []
+            self.scores = []
 
     def draw(self, registro_actual, color_registro) -> None:
-        Cursor.move_and_print([6, 2], f"{Color.RED}{Color.S_B}{f'💀 GAME OVER 💀':^{columns - 2}}{Cursor.S_R}")
+        Cursor.move_and_print([6, 2], f"{Color.RED}{Cursor.S_B}{f'💀 GAME OVER 💀':^{columns - 2}}{Cursor.S_R}")
         Cursor.move_and_print([7, 2], f"{'―――――――――――――――――――――――――――――――':^{columns - 1}}")
 
         # 10 MEJORES PUNTUACIONES
         ranking = sorted(self.scores, key=lambda score: score[2], reverse=True)
         for i, element in enumerate(ranking[:self.SCORE_MAX_LENGTH], 8):
-            color = f"{Color.S_B}{color_registro}" if element[0] == registro_actual[0] else Cursor.S_R
+            color = f"{Cursor.S_B}{color_registro}" if element[0] == registro_actual[0] else Cursor.S_R
             item = f"{f'🤖 {element[1]}':<15}{element[2]:>15}"
             Cursor.move_and_print([i, 2], f"{color}{item:^{columns - 2}}")
 
@@ -252,7 +252,7 @@ class Keyboard:
             global key_pressed
             try:
                 key_read=""
-                tty.setcbreak(self.fd)
+                tty.setcbreak(Keyboard.fd)
                 while key_read != "q":
                     ch1 = sys.stdin.read(1)
                     if ch1 == '\x1b':
@@ -273,10 +273,10 @@ class Keyboard:
                         key_read = "P"
                     elif ch1 in ['+', '-']:
                         key_read = ch1
-                    with self.lock:
+                    with Keyboard.lock:
                         key_pressed = key_read
             finally:
-                termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
+                termios.tcsetattr(Keyboard.fd, termios.TCSADRAIN, Keyboard.old_settings)
     
         key_thread = threading.Thread(target=read_keyboard, daemon=True)
         key_thread.start()
@@ -297,21 +297,21 @@ class Game:
         self.action = "R"
         self._last_direction = self.action
     
-    def __get_valid_username(self) -> str:
+    def _get_valid_username(self) -> str:
         Cursor.move_cursor(lines + 6, 0)
-        new_username = input(f" {Cursor.CURSOR_SHOW}{Cursor.S_R}{Color.S_B}🤖 PLAYER NAME: {Cursor.S_R}{Color.GRAY}")
+        new_username = input(f" {Cursor.SHOW}{Cursor.S_R}{Cursor.S_B}🤖 PLAYER NAME: {Cursor.S_R}{Color.GRAY}")
 
         # COMPROBAR SI LA LONGITUD DEL NOMBRE ES MAYOR DE LA MÁXIMA PERMITIDA
         if len(new_username) >= self.USERNAME_MAX_LENGTH:
-            print(f"{Cursor.CURSOR_HIDE}{Color.RED}Username must be less than 15 characters{Cursor.S_R}")
+            print(f"{Cursor.HIDE}{Color.RED}Username must be less than 15 characters{Cursor.S_R}")
             time.sleep(1)
             return ""
-        print(Cursor.CURSOR_HIDE, end="")
+        print(Cursor.HIDE, end="")
         return new_username
     
     def change_speed(self) -> int:
         change = { '+': 1, '-': -1 }
-        new_speed = self.speed + change[self.action]
+        new_speed = self.speed + change[key_pressed]
         return new_speed if self.MIN_SPEED <= new_speed <= self.MAX_SPEED else self.speed
     
     def obtain_frame_rate(self) -> float:
@@ -335,39 +335,48 @@ class Game:
     def get_username(self, map) -> None:
         while game.username == "":
             map.draw()
-            self.username = self.__get_valid_username()
+            self.username = self._get_valid_username()
+    
+    def get_current_action(self, keyboard, snake):
+        with keyboard.lock:
+            if key_pressed in ['U', 'L', 'D', 'R']:
+                if not snake.is_invalid_move(key_pressed, self._last_direction):
+                    snake.direction = key_pressed
+                    self.action = key_pressed
+            elif key_pressed in ['P', 'Q']:
+                self.action = key_pressed
 
-    def loop(self, map, snake, fruit):
+    def loop(self, keyboard: Keyboard, map: Map, snake: Snake, fruit: Fruit, scoreManager: ScoreManager) -> None:
+        global key_pressed
         while True:
-            with Keyboard.lock:
-                self.action = snake.get_valid_move(self.last_direction)
+            self.get_current_action(keyboard, snake)
 
             # CONTROL DE PAUSA
             if self.in_pause:
                 if self.action != 'P':
                     self.in_pause = False
                     self.speed = last_speed
-                    Game.draw_info()
+                    self.draw_info()
                 continue
             
             # CONTROL DE ACCIONES
             if self.action == 'Q':
-                Game.end(map, record)
+                Game.end(scoreManager, map, record)
                 break
             elif self.action == 'P':
                 last_speed = self.speed
                 self.speed = 0
                 self.in_pause = True
-                Game.draw_info()
+                self.draw_info()
                 continue
-            elif self.action in ['+', '-']:
+            elif key_pressed in ['+', '-']:
                 self.speed = self.change_speed()
-                Game.draw_info()
-                self.action = self.last_direction
+                self.draw_info()
+                key_pressed = self._last_direction
                 continue
             
             # MOVER SERPIENTE
-            tail = snake.move(self.last_direction)
+            tail = snake.move(self._last_direction)
 
             # COMPROBAR SI SE COMIÓ UNA FRUTA
             if snake.check_eat(tail, fruit):
@@ -376,28 +385,29 @@ class Game:
                 fruit = Fruit(range)
                 fruit.draw()
                 self.score += 1
-                Game.draw_info()
+                self.draw_info()
 
             # COMPROBAR SI SE HA CHOCADO
-            if snake.check_collision():
-                record = ScoreManager.save(self.username, self.score)
+            if snake.check_collision(map):
+                record = scoreManager.save(self.username, self.score)
                 snake.change_head_color(color=Color.RED, reset_color=False)
-                Game.end(map, record)
+                Game.end(scoreManager, map, record)
                 break
 
             # GUARDAR ÚLTIMA TECLA Y VELOCIDAD VÁLIDA
-            self.last_direction = self.action
+            self._last_direction = self.action
             self.last_speed = self.speed
 
             # TIEMPO DE ESPERA ENTRE CADA FOTOGRAMA
             frame_rate = self.obtain_frame_rate()
             time.sleep(frame_rate)
     
-    def end(self, map, record: tuple = None) -> None:
+    @staticmethod
+    def end(scoreManager, map, record: tuple = None) -> None:
         if record is not None:
             time.sleep(1)
             map.draw()
-            self.show_scores(record, color_registro=Color.MAGENTA)
+            scoreManager.draw(record, color_registro=Color.MAGENTA)
         else:
             map.draw()
             Cursor.move_and_print(((lines // 2) + 5, 2), f"{f'THANKS FOR PLAYING!':^{columns}}")
@@ -409,6 +419,10 @@ map = Map(15, 50)
 snake = Snake(initial_position)
 fruit = Fruit(map.get_valid_range(snake))
 
+keyboard = Keyboard()
+scoreManager = ScoreManager()
+scoreManager.load()
+
 try:
     # PEDIR ANTES DE EMPEZAR EL NOMBRE DE USUARIO.
     game.get_username(map)
@@ -416,15 +430,14 @@ try:
     # DIBUJAR EN PANTALLA LOS ELEMENTOS.
     snake.draw()
     fruit.draw()
-    Game.draw_info()
+    game.draw_info()
     
     # INICIAR BUCLE DEL JUEGO.
-    Keyboard.start_keyboard()
-    game.loop(map, snake, fruit)
+    keyboard.start_keyboard()
+    game.loop(keyboard, map, snake, fruit, scoreManager)
 except KeyboardInterrupt:
-    Game.end(map, record)
+    Game.end(scoreManager, map)
 finally:
     termios.tcsetattr(Keyboard.fd, termios.TCSADRAIN, Keyboard.old_settings)
-    Cursor.move_cursor(lines + 6, 0)
-    print(f"{Cursor.CURSOR_SHOW}{Cursor.S_R}", end="")
+    Cursor.move_and_print((map.lines + 5, 0), f"{Cursor.SHOW}{Cursor.S_R}")
     sys.exit(1)
